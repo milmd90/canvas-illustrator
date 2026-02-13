@@ -161,7 +161,7 @@ function Render() {
 
 $(function () {
     $.ajax({
-        url: "javascript/design3/directory_map.json",
+        url: "design3/directory_map.json",
         dataType: "text",
         timeout: 0,
         success: function (text) {
