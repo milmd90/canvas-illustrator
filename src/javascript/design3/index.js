@@ -2,17 +2,24 @@ var DirectoryMap = null;
 var TreeNodes = [];
 var TreeEdges = [];
 var LayoutBounds = { xMin: 0, xMax: 1, yMin: 0, yMax: 1 };
+var LoadStatus = "loading"; // "loading" | "parsing" | "ready" | "error"
+var MaxNodes = 15000;      // cap nodes so huge trees don't freeze the UI
+var TruncatedMessage = null; // set if tree was capped
 
 function MakePoster() {
     TreeNodes = [];
     TreeEdges = [];
+    TruncatedMessage = null;
     if (!DirectoryMap) return;
 
     var nodeList = [];
     var edgeList = [];
+    var nodeCount = 0;
     function walk(obj, parentId, depth, path) {
+        if (nodeCount >= MaxNodes) return;
         var keys = Object.keys(obj);
         keys.forEach(function (key, index) {
+            if (nodeCount >= MaxNodes) return;
             var id = path ? path + "/" + key : key;
             var val = obj[key];
             var isDir = val !== null && typeof val === "object";
@@ -24,6 +31,7 @@ function MakePoster() {
                 indexInParent: index,
                 siblingCount: keys.length,
             });
+            nodeCount += 1;
             if (parentId) edgeList.push({ from: parentId, to: id });
             if (isDir) walk(val, id, depth + 1, id);
         });
@@ -76,6 +84,7 @@ function MakePoster() {
 
     TreeNodes = nodeList;
     TreeEdges = edgeList;
+    TruncatedMessage = nodeCount >= MaxNodes ? "Showing first " + MaxNodes + " nodes" : null;
 }
 
 function toScreen(x, y) {
@@ -96,7 +105,8 @@ function Render() {
         BackContextHandle.fillStyle = "#eee";
         BackContextHandle.font = "16px sans-serif";
         BackContextHandle.textAlign = "center";
-        BackContextHandle.fillText("Loading directory_map.json…", CanvasWidth / Camera.z / 2 - Camera.x, CanvasHeight / Camera.z / 2 - Camera.y);
+        var msg = LoadStatus === "parsing" ? "Parsing directory_map.json…" : LoadStatus === "error" ? "Failed to load directory_map.json" : "Loading directory_map.json…";
+        BackContextHandle.fillText(msg, CanvasWidth / Camera.z / 2 - Camera.x, CanvasHeight / Camera.z / 2 - Camera.y);
         return;
     }
 
@@ -141,16 +151,39 @@ function Render() {
         BackContextHandle.fillStyle = "#fff";
         BackContextHandle.fillText(n.name, p.x, p.y + nodeR + fontPx * 0.6);
     });
+    if (TruncatedMessage) {
+        BackContextHandle.fillStyle = "rgba(255,255,255,0.8)";
+        BackContextHandle.font = (12 / Camera.z) + "px sans-serif";
+        BackContextHandle.textAlign = "left";
+        BackContextHandle.fillText(TruncatedMessage, -Camera.x + 8, -Camera.y + CanvasHeight / Camera.z - 16);
+    }
 }
 
 $(function () {
-    $.getJSON("directory_map.json")
-        .done(function (data) {
-            DirectoryMap = data;
-            MakePoster();
+    $.ajax({
+        url: "javascript/design3/directory_map.json",
+        dataType: "text",
+        timeout: 0,
+        success: function (text) {
+            LoadStatus = "parsing";
             UpdateRender();
-        })
-        .fail(function () {
-            console.error("Failed to load directory_map.json");
-        });
+            setTimeout(function () {
+                try {
+                    DirectoryMap = JSON.parse(text);
+                    MakePoster();
+                    LoadStatus = "ready";
+                    UpdateRender();
+                } catch (e) {
+                    console.error("Failed to parse directory_map.json", e);
+                    LoadStatus = "error";
+                    UpdateRender();
+                }
+            }, 0);
+        },
+        error: function (xhr, status, err) {
+            console.error("Failed to load directory_map.json", status, err);
+            LoadStatus = "error";
+            UpdateRender();
+        }
+    });
 });
