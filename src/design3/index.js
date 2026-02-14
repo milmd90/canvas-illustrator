@@ -34,10 +34,6 @@ var MaxNodes = 10000000;
 /** Message to display if tree was truncated (null if not truncated) */
 var TruncatedMessage = null;
 
-// references main.js
-ratioX = 2;
-Init();
-
 /**
  * MakePoster() - Builds the tree visualization from DirectoryMap
  * 
@@ -111,140 +107,75 @@ function MakePoster() {
     });
 
     // ========================================================================
-    // STEP 3: Calculate layout parameters
+    // STEP 3: Radial layout parameters
     // ========================================================================
     var maxDepth = 0;
     nodeList.forEach(function (n) { maxDepth = Math.max(maxDepth, n.depth); });
-    // Vertical spacing: divide canvas height evenly by depth levels
-    var yStep = maxDepth > 0 ? 1 / maxDepth : 1;
+
+    // Radius configuration (normalized: 0..1). Keep some margin from canvas edges.
+    var radiusMax = 0.45; // maximum radius from center in normalized coords
+    var radiusStep = maxDepth > 0 ? radiusMax / maxDepth : radiusMax;
+
+    // Determine leaves and angular step
+    var leaves = nodeList.filter(function(n){ return n.children.length === 0; });
+    var leafCount = Math.max(1, leaves.length);
+    var angleStep = (2 * Math.PI) / leafCount;
+    var angleCursor = 0;
 
     // ========================================================================
-    // STEP 4: Calculate minimum horizontal spacing to prevent node overlap
+    // STEP 4: Layout algorithm - radial layout
+    // - Leaves receive sequential angles around the circle
+    // - Parent nodes compute angle as vector-average of their children's angles
+    // - Radius is proportional to depth
     // ========================================================================
-    var nodeCount = nodeList.length;
-    
-    // Spacing calculation notes:
-    // - Node radius is ~3px (see Render function)
-    // - We want at least 4x node radius (~12px) between nodes
-    // - Normalized: 12px / 1200px canvas ≈ 0.01
-    // - Scale up for larger trees using square root (better than linear)
-    var baseSpacing = 0.015;  // Base spacing in normalized coordinates
-    var scaledSpacing = baseSpacing * Math.max(1, Math.sqrt(nodeCount / 500));
-    var minSpacing = Math.max(0.015, scaledSpacing);
-    
-    // ========================================================================
-    // STEP 5: Layout algorithm - assign x, y positions to each node
-    // ========================================================================
-    var xCursor = 0;  // Tracks current x position as we lay out nodes
-    
-    /**
-     * Recursive layout function: assigns x, y positions using hierarchical layout
-     * Algorithm:
-     * - Leaf nodes: assign sequential x positions with minSpacing
-     * - Parent nodes: center over their children
-     * - Enforces minimum spacing between siblings
-     * 
-     * @param {Object} node - Node to layout (must have .children array)
-     */
     function layout(node) {
-        // Set y position based on depth (top-down: depth 0 at top)
-        node.y = node.depth * yStep;
-        
-        // Leaf node: assign x position and advance cursor
-        if (node.children.length === 0) {
-            node.x = xCursor;
-            xCursor += minSpacing;
+        // Radius by depth
+        node.r = node.depth * radiusStep;
+
+        // Leaf: assign next angle
+        if (!node.children || node.children.length === 0) {
+            node.angle = angleCursor;
+            angleCursor += angleStep;
             return;
         }
-        
-        // Parent node: layout children first (depth-first)
+
+        // Layout children first
         node.children.forEach(layout);
-        
-        // Enforce minimum spacing between sibling children
-        // This prevents overlaps when children are close together
-        for (var i = 0; i < node.children.length - 1; i++) {
-            var current = node.children[i];
-            var next = node.children[i + 1];
-            var spacing = next.x - current.x;
-            if (spacing < minSpacing) {
-                var shift = minSpacing - spacing;
-                // Shift all subsequent siblings to the right
-                for (var j = i + 1; j < node.children.length; j++) {
-                    node.children[j].x += shift;
-                }
-                // Update global cursor to prevent future overlaps
-                xCursor = Math.max(xCursor, node.children[node.children.length - 1].x + minSpacing);
-            }
-        }
-        
-        // Center parent node over its children
-        var childXMin = node.children[0].x;
-        var childXMax = node.children[node.children.length - 1].x;
-        node.x = (childXMin + childXMax) / 2;
+
+        // Compute vector-average of child angles to avoid wrap issues
+        var sx = 0, sy = 0;
+        node.children.forEach(function(c) {
+            sx += Math.cos(c.angle);
+            sy += Math.sin(c.angle);
+        });
+        node.angle = Math.atan2(sy, sx);
     }
-    
-    // Layout all root-level nodes (depth 0)
+
+    // Layout starting at root-level nodes
     var roots = nodeList.filter(function (n) { return n.depth === 0; });
     roots.forEach(layout);
-    
-    // ========================================================================
-    // STEP 6: Second pass - ensure spacing between root-level nodes
-    // ========================================================================
-    // Sort roots by x position
-    roots.sort(function(a, b) { return a.x - b.x; });
-    
-    // Check spacing between adjacent root nodes and shift if needed
-    for (var i = 0; i < roots.length - 1; i++) {
-        var spacing = roots[i + 1].x - roots[i].x;
-        if (spacing < minSpacing) {
-            var shift = minSpacing - spacing;
-            
-            /**
-             * Recursively shift a node and all its descendants
-             * Used to maintain tree structure when shifting root nodes
-             */
-            function shiftSubtree(node, shiftAmount) {
-                node.x += shiftAmount;
-                if (node.children) {
-                    node.children.forEach(function(child) {
-                        shiftSubtree(child, shiftAmount);
-                    });
-                }
-            }
-            
-            // Shift this root and all subsequent roots (and their subtrees)
-            for (var j = i + 1; j < roots.length; j++) {
-                shiftSubtree(roots[j], shift);
-            }
-        }
-    }
 
     // ========================================================================
-    // STEP 7: Normalize coordinates to 0-1 range and set layout bounds
+    // STEP 5: Convert polar coords (r, angle) to normalized x,y and compute bounds
     // ========================================================================
-    // Find bounding box of all nodes
     var xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
-    nodeList.forEach(function (n) {
-        xMin = Math.min(xMin, n.x);
-        xMax = Math.max(xMax, n.x);
-        yMin = Math.min(yMin, n.y);
-        yMax = Math.max(yMax, n.y);
+    nodeList.forEach(function(n) {
+        // Convert to normalized coordinates centered at 0.5,0.5
+        var nx = 0.5 + (n.r * Math.cos(n.angle));
+        var ny = 0.5 + (n.r * Math.sin(n.angle));
+        n.x = nx;
+        n.y = ny;
+        xMin = Math.min(xMin, nx);
+        xMax = Math.max(xMax, nx);
+        yMin = Math.min(yMin, ny);
+        yMax = Math.max(yMax, ny);
     });
-    
-    // Normalize x positions to 0-1 range (preserving relative spacing)
-    var xRange = xMax - xMin || 1;
-    var normalizedMinSpacing = minSpacing / xRange;
-    nodeList.forEach(function (n) {
-        n.x = (n.x - xMin) / xRange;  // Normalize x: 0 to 1
-        n.y = n.y;  // y is already normalized (0 to 1)
-    });
-    
-    // Set layout bounds with padding to accommodate full tree
-    // Larger margin for large trees ensures everything fits on screen
-    var margin = Math.max(0.1, normalizedMinSpacing * 3);
-    LayoutBounds = { xMin: -margin, xMax: 1 + margin, yMin: -margin, yMax: 1 + margin };
 
-    // Store results in global arrays
+    // Add small margin so nodes/edges don't touch canvas edges
+    var margin = 0.05;
+    LayoutBounds = { xMin: xMin - margin, xMax: xMax + margin, yMin: yMin - margin, yMax: yMax + margin };
+
+    // Store results
     TreeNodes = nodeList;
     TreeEdges = edgeList;
     TruncatedMessage = nodeCount >= MaxNodes ? "Showing first " + MaxNodes + " nodes" : null;
@@ -397,6 +328,10 @@ function Render() {
 // INITIALIZATION: Load directory_map.json when page is ready
 // ============================================================================
 $(function () {
+    // references main.js
+    ratioX = 2;
+    Init();
+
     $.ajax({
         url: "design3/directory_map.json",
         dataType: "text",
