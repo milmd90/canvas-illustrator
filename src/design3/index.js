@@ -31,6 +31,9 @@ var LoadStatus = "loading";
 /** Maximum number of nodes to render (prevents UI freeze on huge trees) */
 var MaxNodes = 100000;
 
+/** Maximum number of nodes to render (prevents UI freeze on huge trees) */
+var MaxLevels = 10;
+
 /** Message to display if tree was truncated (null if not truncated) */
 var TruncatedMessage = null;
 
@@ -68,6 +71,7 @@ function MakePoster() {
      */
     function walk(obj, parentId, depth, path) {
         if (nodeCount >= MaxNodes) return;
+        if (depth >= MaxLevels) return;
         var keys = Object.keys(obj);
         keys.forEach(function (key, index) {
             if (nodeCount >= MaxNodes) return;
@@ -116,36 +120,29 @@ function MakePoster() {
     var baseRadius = 0.08;  // root node size (normalized)
     var radiusScale = 0.65; // child radius = parent radius * 0.65
 
-    // Distance from parent to child (normalized, fixed)
-    var childDistance = 0.15;
-    var padding = 0.04;
-
     // ========================================================================
     // STEP 4: Layout algorithm - children radiate from parent
     // - Root placed at center (0.5, 0.5)
     // - Each child positioned radially around its parent at fixed distance
     // - Children angles distributed evenly around parent
     // ========================================================================
-    function layout(node, parentX, parentY, parentRadius) {
-        // Set node radius based on depth
-        node.radius = baseRadius * Math.pow(radiusScale, node.depth);
-
-        if (!node.children || node.children.length === 0) {
+    function layout(children, parentX, parentY, parentRadius) {
+        if (!children || children.length === 0) {
             // Leaf node: no children to position
             return;
         }
 
         // Distribute children evenly around this parent node
-        var childCount = node.children.length;
+        var childCount = children.length;
         var angleStep = (2 * Math.PI) / Math.max(1, childCount);
         
-        node.children.forEach(function(child, index) {
+        children.forEach(function(child, index) {
             // First, set child's radius so we know it when calculating distance
             child.radius = baseRadius * Math.pow(radiusScale, child.depth);
             
             var childAngle = angleStep * index;
             // Distance from parent center to child center
-            var distanceToChild = parentRadius + child.radius + padding;
+            var distanceToChild = 1*(parentRadius + child.radius);
             
             // Position relative to parent
             var dx = Math.cos(childAngle) * distanceToChild;
@@ -156,17 +153,17 @@ function MakePoster() {
             child.y = parentY + dy;
             
             // Recursively layout child's children
-            layout(child, child.x, child.y, child.radius);
+            layout(child.children, child.x, child.y, child.radius);
         });
     }
 
     // Layout starting at root-level nodes
     var roots = nodeList.filter(function (n) { return n.depth === 0; });
     roots.forEach(function(root) {
-        root.radius = baseRadius;
         root.x = 0.5;
         root.y = 0.5;
-        layout(root, root.x, root.y, root.radius);
+        root.radius = baseRadius;
+        layout(root.children, root.x, root.y, root.radius);
     });
 
     // ========================================================================
