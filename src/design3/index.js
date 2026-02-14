@@ -29,10 +29,14 @@ var LayoutBounds = { xMin: 0, xMax: 1, yMin: 0, yMax: 1 };
 var LoadStatus = "loading";
 
 /** Maximum number of nodes to render (prevents UI freeze on huge trees) */
-var MaxNodes = 15000;
+var MaxNodes = 10000000;
 
 /** Message to display if tree was truncated (null if not truncated) */
 var TruncatedMessage = null;
+
+// references main.js
+ratioX = 2;
+Init();
 
 /**
  * MakePoster() - Builds the tree visualization from DirectoryMap

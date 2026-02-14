@@ -11,6 +11,10 @@ const arcChance = 1/10;
 var Lines = [];
 var Arcs = [];
 
+Init();
+MakePoster();
+UpdateRender();
+
 function MakePoster() {
 
     for (x=1; x < numX; x++) {

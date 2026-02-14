@@ -1,3 +1,4 @@
+// $( document ).ready(function() {
 const right = "Right";
 const left = "Left";
 const cellSize = scale / 16;
@@ -9,6 +10,10 @@ var Arcs = [];
 var cursor;
 var dir;
 var onThe;
+
+Init();
+MakePoster();
+UpdateRender();
 
 function MakePoster() {
     cursor = {
@@ -265,3 +270,4 @@ function dirToCord(dir) {
             console.log("Error: dirToCord "+ dir%4);
     }
 }
+// });

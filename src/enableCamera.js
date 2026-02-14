@@ -60,9 +60,9 @@ $( document ).ready(function() {
             return false;
         });
 
-    Init();
-    MakePoster();
-    UpdateRender();
+    // Init();
+    // MakePoster();
+    // UpdateRender();
     // ContRender();
 
     // Create hi res image
