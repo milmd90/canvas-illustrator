@@ -32,7 +32,7 @@ var LoadStatus = "loading";
 var MaxNodes = 100000;
 
 /** Maximum number of nodes to render (prevents UI freeze on huge trees) */
-var MaxLevels = 10;
+var MaxLevels = 4;
 
 /** Message to display if tree was truncated (null if not truncated) */
 var TruncatedMessage = null;
@@ -132,26 +132,24 @@ function MakePoster() {
             return;
         }
 
-        // Distribute children evenly around this parent node
-        var childCount = children.length;
-        var angleStep = (2 * Math.PI) / Math.max(1, childCount);
-        
-        children.forEach(function(child, index) {
+        // Place children at random directions around the parent, keeping a constant distance
+        children.forEach(function(child) {
             // First, set child's radius so we know it when calculating distance
             child.radius = baseRadius * Math.pow(radiusScale, child.depth);
-            
-            var childAngle = angleStep * index;
-            // Distance from parent center to child center
-            var distanceToChild = 1*(parentRadius + child.radius);
-            
+
+            // Random angle around parent
+            var childAngle = Math.random() * Math.PI * 2;
+            // Keep the same distance for all siblings from parent center
+            var distanceToChild = 1 * (parentRadius + child.radius);
+
             // Position relative to parent
             var dx = Math.cos(childAngle) * distanceToChild;
             var dy = Math.sin(childAngle) * distanceToChild;
-            
+
             // Absolute position
             child.x = parentX + dx;
             child.y = parentY + dy;
-            
+
             // Recursively layout child's children
             layout(child.children, child.x, child.y, child.radius);
         });
