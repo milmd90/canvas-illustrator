@@ -175,14 +175,14 @@ function MakePoster() {
         xMax = Math.max(xMax, n.x + r);
         yMin = Math.min(yMin, n.y - r);
         yMax = Math.max(yMax, n.y + r);
-        // zMin = Math.min(zMin, n.z || 0);
-        // zMax = Math.max(zMax, n.z || 0);
+        zMin = Math.min(zMin, n.z - r);
+        zMax = Math.max(zMax, n.z + r);
     });
 
     // Add small margin so nodes don't touch canvas edges
     var margin = 0.05;
-    LayoutBounds = { xMin: xMin - margin, xMax: xMax + margin, yMin: yMin - margin, yMax: yMax + margin };
-    // LayoutBounds = { xMin: xMin - margin, xMax: xMax + margin, yMin: yMin - margin, yMax: yMax + margin, zMin: zMin, zMax: zMax };
+    // LayoutBounds = { xMin: xMin - margin, xMax: xMax + margin, yMin: yMin - margin, yMax: yMax + margin };
+    LayoutBounds = { xMin: xMin - margin, xMax: xMax + margin, yMin: yMin - margin, yMax: yMax + margin, zMin: zMin, zMax: zMax };
 
     // Store results
     TreeNodes = nodeList;
