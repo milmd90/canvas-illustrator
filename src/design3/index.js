@@ -32,7 +32,7 @@ var LoadStatus = "loading";
 var MaxNodes = 100000;
 
 /** Maximum number of nodes to render (prevents UI freeze on huge trees) */
-var MaxLevels = 4;
+var MaxLevels = 10;
 
 /** Message to display if tree was truncated (null if not truncated) */
 var TruncatedMessage = null;
@@ -121,12 +121,12 @@ function MakePoster() {
     var radiusScale = 0.65; // child radius = parent radius * 0.65
 
     // ========================================================================
-    // STEP 4: Layout algorithm - children radiate from parent
-    // - Root placed at center (0.5, 0.5)
-    // - Each child positioned radially around its parent at fixed distance
-    // - Children angles distributed evenly around parent
+    // STEP 4: Layout algorithm - children radiate from parent in 3D
+    // - Root placed at center (0.5, 0.5, 0)
+    // - Each child positioned at a random direction around its parent at fixed distance
+    // - Z coordinate assigned so children occupy 3D space
     // ========================================================================
-    function layout(children, parentX, parentY, parentRadius) {
+    function layout(children, parentX, parentY, parentZ, parentRadius) {
         if (!children || children.length === 0) {
             // Leaf node: no children to position
             return;
@@ -137,21 +137,25 @@ function MakePoster() {
             // First, set child's radius so we know it when calculating distance
             child.radius = baseRadius * Math.pow(radiusScale, child.depth);
 
-            // Random angle around parent
-            var childAngle = Math.random() * Math.PI * 2;
-            // Keep the same distance for all siblings from parent center
-            var distanceToChild = 1 * (parentRadius + child.radius);
+            // Constant distance for siblings from parent center
+            var distanceToChild = (parentRadius + child.radius) * 5;
 
-            // Position relative to parent
-            var dx = Math.cos(childAngle) * distanceToChild;
-            var dy = Math.sin(childAngle) * distanceToChild;
+            // Random spherical distribution: random direction around parent in 3D
+            var phi = Math.acos(2 * Math.random() - 1);  // random polar angle (0 to π)
+            var theta = Math.random() * 2 * Math.PI;     // random azimuthal angle (0 to 2π)
+
+            // Convert spherical to Cartesian coordinates relative to parent
+            var dx = Math.cos(theta) * Math.sin(phi) * distanceToChild;
+            var dy = Math.sin(theta) * Math.sin(phi) * distanceToChild;
+            var dz = Math.cos(phi) * distanceToChild;
 
             // Absolute position
             child.x = parentX + dx;
             child.y = parentY + dy;
+            child.z = parentZ + dz;
 
-            // Recursively layout child's children
-            layout(child.children, child.x, child.y, child.radius);
+            // Recursively layout children
+            layout(child.children, child.x, child.y, child.z, child.radius);
         });
     }
 
@@ -160,8 +164,9 @@ function MakePoster() {
     roots.forEach(function(root) {
         root.x = 0.5;
         root.y = 0.5;
+        root.z = 0;
         root.radius = baseRadius;
-        layout(root.children, root.x, root.y, root.radius);
+        layout(root.children, root.x, root.y, root.z, root.radius);
     });
 
     // ========================================================================
@@ -278,30 +283,58 @@ function Render() {
     var nodeR = Math.max(1, 3 / Camera.z);       // Node radius (dots)
 
     // ========================================================================
-    // Render nodes as shaded spheres (circles with radial gradient)
+    // Render nodes in 3D: project using perspective, depth-sort, and draw
     // ========================================================================
-    // Compute pixel scale for normalized units
-    var w = CanvasWidth / Camera.z;
-    var h = CanvasHeight / Camera.z;
-    var bx = LayoutBounds.xMax - LayoutBounds.xMin || 1;
-    var by = LayoutBounds.yMax - LayoutBounds.yMin || 1;
-    var scale = (w / bx + h / by) * 0.5; // average pixel per normalized unit
+    var focal = 1.2; // perspective focal length
 
-    TreeNodes.forEach(function (n) {
-        // Convert normalized coordinates to screen pixels
-        var p = toScreen(n.x, n.y);
-        var radiusPx = Math.max(2, (n.radius || 0.01) * scale);
-        
-        // Get color based on depth
+    // Project nodes to 2D normalized coordinates (projX, projY) and projRadius
+    TreeNodes.forEach(function(n){
+        var z = (typeof n.z === 'number') ? n.z : 0;
+        var s = focal / (focal + z);
+        n.projX = 0.5 + (n.x - 0.5) * s;
+        n.projY = 0.5 + (n.y - 0.5) * s;
+        n.projRadius = (n.radius || 0) * s;
+        n._projScale = s;
+    });
+
+    // Compute projected bounds so we can map to screen
+    var pxMin = Infinity, pxMax = -Infinity, pyMin = Infinity, pyMax = -Infinity;
+    TreeNodes.forEach(function(n){
+        pxMin = Math.min(pxMin, n.projX - (n.projRadius||0));
+        pxMax = Math.max(pxMax, n.projX + (n.projRadius||0));
+        pyMin = Math.min(pyMin, n.projY - (n.projRadius||0));
+        pyMax = Math.max(pyMax, n.projY + (n.projRadius||0));
+    });
+    var pmargin = 0.03;
+    pxMin -= pmargin; pxMax += pmargin; pyMin -= pmargin; pyMax += pmargin;
+
+    // local toScreen for projected normalized coords
+    function projToScreen(px, py){
+        var wv = CanvasWidth / Camera.z;
+        var hv = CanvasHeight / Camera.z;
+        var bxx = Math.max(1e-6, pxMax - pxMin);
+        var byy = Math.max(1e-6, pyMax - pyMin);
+        var sx = (-Camera.x) + (px - pxMin) / bxx * wv;
+        var sy = (-Camera.y) + (py - pyMin) / byy * hv;
+        return { x: sx, y: sy };
+    }
+
+    // Pixel scale for radii
+    var scale = (CanvasWidth/Camera.z) / Math.max(1e-6, pxMax - pxMin);
+
+    // Depth-sort by z: farthest first (larger z considered farther)
+    var nodesSorted = TreeNodes.slice().sort(function(a,b){ return (b.z||0) - (a.z||0); });
+
+    nodesSorted.forEach(function(n){
+        var p = projToScreen(n.projX, n.projY);
+        var radiusPx = Math.max(2, (n.projRadius || 0.005) * scale);
         var color = depthToColor(n.depth, maxDepth);
-        
-        // Draw filled circle with solid color (simplified shading)
+
         BackContextHandle.beginPath();
         BackContextHandle.fillStyle = "rgb(" + color.r + "," + color.g + "," + color.b + ")";
         BackContextHandle.arc(p.x, p.y, radiusPx, 0, Math.PI*2);
         BackContextHandle.fill();
 
-        // Subtle rim
         BackContextHandle.strokeStyle = "rgba(0,0,0,0.25)";
         BackContextHandle.lineWidth = Math.max(0.5, 1/Camera.z);
         BackContextHandle.beginPath();
