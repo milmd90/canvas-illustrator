@@ -29,7 +29,7 @@ var LayoutBounds = { xMin: 0, xMax: 1, yMin: 0, yMax: 1 };
 var LoadStatus = "loading";
 
 /** Maximum number of nodes to render (prevents UI freeze on huge trees) */
-var MaxNodes = 10000000;
+var MaxNodes = 100000;
 
 /** Message to display if tree was truncated (null if not truncated) */
 var TruncatedMessage = null;
@@ -112,63 +112,73 @@ function MakePoster() {
     var maxDepth = 0;
     nodeList.forEach(function (n) { maxDepth = Math.max(maxDepth, n.depth); });
 
-    // Radius configuration (normalized: 0..1). Keep some margin from canvas edges.
-    var radiusMax = 0.45; // maximum radius from center in normalized coords
-    var radiusStep = maxDepth > 0 ? radiusMax / maxDepth : radiusMax;
+    // Node radius (sphere size) scales with depth
+    var baseRadius = 0.08;  // root node size (normalized)
+    var radiusScale = 0.65; // child radius = parent radius * 0.65
 
-    // Determine leaves and angular step
-    var leaves = nodeList.filter(function(n){ return n.children.length === 0; });
-    var leafCount = Math.max(1, leaves.length);
-    var angleStep = (2 * Math.PI) / leafCount;
-    var angleCursor = 0;
+    // Distance from parent to child (normalized, fixed)
+    var childDistance = 0.15;
+    var padding = 0.04;
 
     // ========================================================================
-    // STEP 4: Layout algorithm - radial layout
-    // - Leaves receive sequential angles around the circle
-    // - Parent nodes compute angle as vector-average of their children's angles
-    // - Radius is proportional to depth
+    // STEP 4: Layout algorithm - children radiate from parent
+    // - Root placed at center (0.5, 0.5)
+    // - Each child positioned radially around its parent at fixed distance
+    // - Children angles distributed evenly around parent
     // ========================================================================
-    function layout(node) {
-        // Radius by depth
-        node.r = node.depth * radiusStep;
+    function layout(node, parentX, parentY, parentRadius) {
+        // Set node radius based on depth
+        node.radius = baseRadius * Math.pow(radiusScale, node.depth);
 
-        // Leaf: assign next angle
         if (!node.children || node.children.length === 0) {
-            node.angle = angleCursor;
-            angleCursor += angleStep;
+            // Leaf node: no children to position
             return;
         }
 
-        // Layout children first
-        node.children.forEach(layout);
-
-        // Compute vector-average of child angles to avoid wrap issues
-        var sx = 0, sy = 0;
-        node.children.forEach(function(c) {
-            sx += Math.cos(c.angle);
-            sy += Math.sin(c.angle);
+        // Distribute children evenly around this parent node
+        var childCount = node.children.length;
+        var angleStep = (2 * Math.PI) / Math.max(1, childCount);
+        
+        node.children.forEach(function(child, index) {
+            // First, set child's radius so we know it when calculating distance
+            child.radius = baseRadius * Math.pow(radiusScale, child.depth);
+            
+            var childAngle = angleStep * index;
+            // Distance from parent center to child center
+            var distanceToChild = parentRadius + child.radius + padding;
+            
+            // Position relative to parent
+            var dx = Math.cos(childAngle) * distanceToChild;
+            var dy = Math.sin(childAngle) * distanceToChild;
+            
+            // Absolute position
+            child.x = parentX + dx;
+            child.y = parentY + dy;
+            
+            // Recursively layout child's children
+            layout(child, child.x, child.y, child.radius);
         });
-        node.angle = Math.atan2(sy, sx);
     }
 
     // Layout starting at root-level nodes
     var roots = nodeList.filter(function (n) { return n.depth === 0; });
-    roots.forEach(layout);
+    roots.forEach(function(root) {
+        root.radius = baseRadius;
+        root.x = 0.5;
+        root.y = 0.5;
+        layout(root, root.x, root.y, root.radius);
+    });
 
     // ========================================================================
-    // STEP 5: Convert polar coords (r, angle) to normalized x,y and compute bounds
+    // STEP 5: Compute bounds for normalized coordinates
     // ========================================================================
     var xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
     nodeList.forEach(function(n) {
-        // Convert to normalized coordinates centered at 0.5,0.5
-        var nx = 0.5 + (n.r * Math.cos(n.angle));
-        var ny = 0.5 + (n.r * Math.sin(n.angle));
-        n.x = nx;
-        n.y = ny;
-        xMin = Math.min(xMin, nx);
-        xMax = Math.max(xMax, nx);
-        yMin = Math.min(yMin, ny);
-        yMax = Math.max(yMax, ny);
+        var r = n.radius || 0;
+        xMin = Math.min(xMin, n.x - r);
+        xMax = Math.max(xMax, n.x + r);
+        yMin = Math.min(yMin, n.y - r);
+        yMax = Math.max(yMax, n.y + r);
     });
 
     // Add small margin so nodes/edges don't touch canvas edges
@@ -273,44 +283,35 @@ function Render() {
     var nodeR = Math.max(1, 3 / Camera.z);       // Node radius (dots)
 
     // ========================================================================
-    // Render edges (lines connecting parent to child)
+    // Render nodes as shaded spheres (circles with radial gradient)
     // ========================================================================
-    BackContextHandle.lineWidth = lineW;
-    TreeEdges.forEach(function (e) {
-        var from = nodeById[e.from];
-        var to = nodeById[e.to];
-        if (!from || !to) return;
-        
-        // Convert normalized coordinates to screen pixels
-        var p1 = toScreen(from.x, from.y);
-        var p2 = toScreen(to.x, to.y);
-        
-        // Color edge based on child's depth
-        var color = depthToColor(to.depth, maxDepth);
-        BackContextHandle.strokeStyle = "rgba(" + color.r + "," + color.g + "," + color.b + ",0.4)";
-        
-        // Draw line
-        BackContextHandle.beginPath();
-        BackContextHandle.moveTo(p1.x, p1.y);
-        BackContextHandle.lineTo(p2.x, p2.y);
-        BackContextHandle.stroke();
-    });
+    // Compute pixel scale for normalized units
+    var w = CanvasWidth / Camera.z;
+    var h = CanvasHeight / Camera.z;
+    var bx = LayoutBounds.xMax - LayoutBounds.xMin || 1;
+    var by = LayoutBounds.yMax - LayoutBounds.yMin || 1;
+    var scale = (w / bx + h / by) * 0.5; // average pixel per normalized unit
 
-    // ========================================================================
-    // Render nodes (colored dots)
-    // ========================================================================
     TreeNodes.forEach(function (n) {
         // Convert normalized coordinates to screen pixels
         var p = toScreen(n.x, n.y);
+        var radiusPx = Math.max(2, (n.radius || 0.01) * scale);
         
         // Get color based on depth
         var color = depthToColor(n.depth, maxDepth);
         
-        // Draw filled circle
+        // Draw filled circle with solid color (simplified shading)
         BackContextHandle.beginPath();
-        BackContextHandle.arc(p.x, p.y, nodeR, 0, 2 * Math.PI);
         BackContextHandle.fillStyle = "rgb(" + color.r + "," + color.g + "," + color.b + ")";
+        BackContextHandle.arc(p.x, p.y, radiusPx, 0, Math.PI*2);
         BackContextHandle.fill();
+
+        // Subtle rim
+        BackContextHandle.strokeStyle = "rgba(0,0,0,0.25)";
+        BackContextHandle.lineWidth = Math.max(0.5, 1/Camera.z);
+        BackContextHandle.beginPath();
+        BackContextHandle.arc(p.x, p.y, radiusPx, 0, Math.PI*2);
+        BackContextHandle.stroke();
     });
     
     // ========================================================================
