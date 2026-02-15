@@ -1,14 +1,3 @@
-/**
- * Design3: Directory Tree Visualization
- * 
- * Visualizes a directory structure from directory_map.json as a hierarchical tree.
- * Features:
- * - Top-down tree layout (root at top, children below)
- * - Color gradient by depth level (blue -> purple -> red)
- * - Non-overlapping node spacing
- * - Dots only (no labels) for clean presentation
- */
-
 // ============================================================================
 // GLOBAL STATE VARIABLES
 // ============================================================================
@@ -29,10 +18,10 @@ var LayoutBounds = { xMin: 0, xMax: 1, yMin: 0, yMax: 1 };
 var LoadStatus = "loading";
 
 /** Maximum number of nodes to render (prevents UI freeze on huge trees) */
-var MaxNodes = 100000;
+var MaxNodes = 10000;
 
 /** Maximum number of nodes to render (prevents UI freeze on huge trees) */
-var MaxLevels = 10;
+var MaxLevels = 1000;
 
 /** Message to display if tree was truncated (null if not truncated) */
 var TruncatedMessage = null;
@@ -117,8 +106,9 @@ function MakePoster() {
     nodeList.forEach(function (n) { maxDepth = Math.max(maxDepth, n.depth); });
 
     // Node radius (sphere size) scales with depth
-    var baseRadius = 0.08;  // root node size (normalized)
-    var radiusScale = 0.65; // child radius = parent radius * 0.65
+    const baseRadius = 0.08;  // root node size (normalized)
+    const radiusScale = 0.65; // child radius = parent radius * radiusScale
+    const distanceScale = 2.5; // distance between parent and child = (parentRadius + childRadius) * distanceScale
 
     // ========================================================================
     // STEP 4: Layout algorithm - children radiate from parent in 3D
@@ -135,10 +125,10 @@ function MakePoster() {
         // Place children at random directions around the parent, keeping a constant distance
         children.forEach(function(child) {
             // First, set child's radius so we know it when calculating distance
-            child.radius = baseRadius * Math.pow(radiusScale, child.depth);
+            child.radius = parentRadius * radiusScale;
 
             // Constant distance for siblings from parent center
-            var distanceToChild = (parentRadius + child.radius) * 5;
+            var distanceToChild = (parentRadius + child.radius) * distanceScale;
 
             // Random spherical distribution: random direction around parent in 3D
             var phi = Math.acos(2 * Math.random() - 1);  // random polar angle (0 to π)
@@ -222,19 +212,14 @@ function toScreen(x, y) {
  * @param {number} maxDepth - Maximum depth in the tree
  * @returns {Object} RGB color: { r: 0-255, g: 0-255, b: 0-255 }
  */
-function depthToColor(depth, maxDepth) {
-    if (maxDepth === 0) return { r: 100, g: 180, b: 255 };  // Default blue
+function depthToColor(depth, maxDepth) {    
+    let t = depth / (maxDepth || 1);
+    let l = 255;
+    let k = Math.random()*.1;
     
-    // Normalize depth to 0-1
-    var t = depth / maxDepth;
-    
-    // Color interpolation:
-    // Blue (depth 0):   rgb(100, 180, 255)
-    // Purple (middle):  rgb(180, 100, 180) 
-    // Red (max depth):  rgb(255, 80, 155)
-    var r = Math.floor(100 + t * 155);  // 100 -> 255
-    var g = Math.floor(180 - t * 100);  // 180 -> 80
-    var b = Math.floor(255 - t * 100);  // 255 -> 155
+    let r = Math.floor(l*(0.5 + 0.5*Math.sin(2*Math.PI*(t + k))));
+    let g = Math.floor(l*(0.5 + 0.5*Math.sin(2*Math.PI*(t + 1/4 + k))));
+    let b = Math.floor(l*(0.5 + 0.5*Math.sin(2*Math.PI*(t + 2/4 + k))));
     
     return { r: r, g: g, b: b };
 }
@@ -251,7 +236,7 @@ function depthToColor(depth, maxDepth) {
  */
 function Render() {
     // Draw dark blue background
-    BackContextHandle.fillStyle = "#1a1a2e";
+    BackContextHandle.fillStyle = "black"; //"#1a1a2e";
     BackContextHandle.fillRect(-Camera.x, -Camera.y, CanvasWidth / Camera.z, CanvasHeight / Camera.z);
 
     // Show loading/parsing/error message if tree not ready
@@ -277,10 +262,6 @@ function Render() {
     // Set rendering styles
     BackContextHandle.lineCap = "round";
     BackContextHandle.lineJoin = "round";
-
-    // Line and node sizes scale with camera zoom
-    var lineW = Math.max(0.5, 1 / Camera.z);      // Edge line width
-    var nodeR = Math.max(1, 3 / Camera.z);       // Node radius (dots)
 
     // ========================================================================
     // Render nodes in 3D: project using perspective, depth-sort, and draw
@@ -335,11 +316,12 @@ function Render() {
         BackContextHandle.arc(p.x, p.y, radiusPx, 0, Math.PI*2);
         BackContextHandle.fill();
 
-        BackContextHandle.strokeStyle = "rgba(0,0,0,0.25)";
-        BackContextHandle.lineWidth = Math.max(0.5, 1/Camera.z);
-        BackContextHandle.beginPath();
-        BackContextHandle.arc(p.x, p.y, radiusPx, 0, Math.PI*2);
-        BackContextHandle.stroke();
+        // Optional: add subtle stroke for better visibility
+        // BackContextHandle.strokeStyle = "rgba(0,0,0,0.25)";
+        // BackContextHandle.lineWidth = Math.max(0.5, 1/Camera.z);
+        // BackContextHandle.beginPath();
+        // BackContextHandle.arc(p.x, p.y, radiusPx, 0, Math.PI*2);
+        // BackContextHandle.stroke();
     });
     
     // ========================================================================
