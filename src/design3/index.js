@@ -327,12 +327,12 @@ function Render() {
     // ========================================================================
     // Show truncation message if tree was capped
     // ========================================================================
-    if (TruncatedMessage) {
-        BackContextHandle.fillStyle = "rgba(255,255,255,0.8)";
-        BackContextHandle.font = (12 / Camera.z) + "px sans-serif";
-        BackContextHandle.textAlign = "left";
-        BackContextHandle.fillText(TruncatedMessage, -Camera.x + 8, -Camera.y + CanvasHeight / Camera.z - 16);
-    }
+    // if (TruncatedMessage) {
+    //     BackContextHandle.fillStyle = "rgba(255,255,255,0.8)";
+    //     BackContextHandle.font = (12 / Camera.z) + "px sans-serif";
+    //     BackContextHandle.textAlign = "left";
+    //     BackContextHandle.fillText(TruncatedMessage, -Camera.x + 8, -Camera.y + CanvasHeight / Camera.z - 16);
+    // }
 }
 
 // ============================================================================
