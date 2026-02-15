@@ -3,7 +3,6 @@ $( document ).ready(function() {
     var $body = $('body');
     var $canvas = $('canvas');
 
-
     var shift = false;
     $body.on('keydown keyup',function(e){
         var stepSize = 5;
@@ -59,15 +58,4 @@ $( document ).ready(function() {
             $window.unbind("mousemove");
             return false;
         });
-
-    // Init();
-    // MakePoster();
-    // UpdateRender();
-    // ContRender();
-
-    // Create hi res image
-    // var imgData = document.getElementById('canvas').toDataURL("image/jpeg", 1.0);
-    // document.getElementById('canvas').style.display = "none";
-    // $('#image').html('<img src="'+imgData+'" width="800px"/>');
-
 });
