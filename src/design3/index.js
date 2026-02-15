@@ -306,22 +306,77 @@ function Render() {
     // Depth-sort by z: farthest first (larger z considered farther)
     var nodesSorted = TreeNodes.slice().sort(function(a,b){ return (b.z||0) - (a.z||0); });
 
+    // Directional light coming from the camera toward the layout center
+    var centerX = (LayoutBounds.xMin + LayoutBounds.xMax) / 2;
+    var centerY = (LayoutBounds.yMin + LayoutBounds.yMax) / 2;
+    var centerZ = 0;
+    // Place virtual camera slightly behind the projection plane at -focal
+    var camX = centerX;
+    var camY = centerY;
+    var camZ = -focal;
+    var lightDir = { x: centerX - camX, y: centerY - camY, z: centerZ - camZ };
+    var llen = Math.hypot(lightDir.x, lightDir.y, lightDir.z) || 1;
+    lightDir.x /= llen; lightDir.y /= llen; lightDir.z /= llen;
+
     nodesSorted.forEach(function(n){
         var p = projToScreen(n.projX, n.projY);
         var radiusPx = Math.max(2, (n.projRadius || 0.005) * scale);
         var color = depthToColor(n.depth, maxDepth);
 
+        // Compute a simple normal toward the camera for the sphere center
+        var vx = 0.5 - (n.x || 0.5);
+        var vy = 0.5 - (n.y || 0.5);
+        var vz = 0 - (n.z || 0); // camera assumed near z=0 looking toward +z
+        var vlen = Math.hypot(vx, vy, vz) || 1;
+        var nx = vx / vlen, ny = vy / vlen, nz = vz / vlen;
+
+        // Diffuse lighting (Lambertian)
+        var diffuse = Math.max(0, nx * lightDir.x + ny * lightDir.y + nz * lightDir.z);
+        var ambient = 1;
+        var intensity = ambient + 0.65 * diffuse;
+
+        // Shade base color by intensity
+        var sr = Math.min(255, Math.max(0, Math.floor(color.r * intensity)));
+        var sg = Math.min(255, Math.max(0, Math.floor(color.g * intensity)));
+        var sb = Math.min(255, Math.max(0, Math.floor(color.b * intensity)));
+
+        // Radial gradient highlight positioned toward the light direction
+        var highlightFactor = 0.2;
+        var hx = p.x + lightDir.x * radiusPx * highlightFactor;
+        var hy = p.y + lightDir.y * radiusPx * highlightFactor;
+        var innerR = Math.max(1, radiusPx * 0.12);
+
+        if (radiusPx > 1) {
+            try {
+                var grad = BackContextHandle.createRadialGradient(hx, hy, innerR, p.x, p.y, radiusPx);
+                // brighter specular-ish center
+                var hr = Math.min(255, sr + 48);
+                var hg = Math.min(255, sg + 48);
+                var hb = Math.min(255, sb + 48);
+                grad.addColorStop(0, "rgba(" + hr + "," + hg + "," + hb + ",1)");
+                // mid tone
+                grad.addColorStop(0.6, "rgba(" + sr + "," + sg + "," + sb + ",1)");
+                // darker rim
+                grad.addColorStop(1, "rgba(" + Math.floor(sr * 0.32) + "," + Math.floor(sg * 0.32) + "," + Math.floor(sb * 0.32) + ",1)");
+                BackContextHandle.fillStyle = grad;
+            } catch (e) {
+                // Fallback in case gradient creation fails for any reason
+                BackContextHandle.fillStyle = "rgb(" + sr + "," + sg + "," + sb + ")";
+            }
+        } else {
+            BackContextHandle.fillStyle = "rgb(" + sr + "," + sg + "," + sb + ")";
+        }
+
         BackContextHandle.beginPath();
-        BackContextHandle.fillStyle = "rgb(" + color.r + "," + color.g + "," + color.b + ")";
         BackContextHandle.arc(p.x, p.y, radiusPx, 0, Math.PI*2);
         BackContextHandle.fill();
 
-        // Optional: add subtle stroke for better visibility
-        // BackContextHandle.strokeStyle = "rgba(0,0,0,0.25)";
-        // BackContextHandle.lineWidth = Math.max(0.5, 1/Camera.z);
-        // BackContextHandle.beginPath();
-        // BackContextHandle.arc(p.x, p.y, radiusPx, 0, Math.PI*2);
-        // BackContextHandle.stroke();
+        // subtle rim stroke for separation
+        BackContextHandle.strokeStyle = "rgba(0,0,0,0.45)";
+        BackContextHandle.lineWidth = 0.6;
+        BackContextHandle.beginPath();
+        BackContextHandle.arc(p.x, p.y, radiusPx, 0, Math.PI*2);
+        BackContextHandle.stroke();
     });
     
     // ========================================================================
